@@ -37,7 +37,7 @@ NAMESPACE_BEGIN(xml)
 enum class Tag {
     Boolean, Integer, Float, String, Point, Vector, Spectrum, RGB,
     Transform, Translate, Matrix, Rotate, Scale, LookAt, Object,
-    NamedReference, Include, Alias, Default, Invalid
+    NamedReference, Include, Alias, Default, Resource, Invalid
 };
 
 struct Version {
@@ -129,24 +129,25 @@ void register_class(const Class *class_) {
         tag_class = new std::unordered_map<std::string, const Class *>();
 
         // Create an initial mapping of tag names to IDs
-        (*tags)["boolean"]    = Tag::Boolean;
-        (*tags)["integer"]    = Tag::Integer;
-        (*tags)["float"]      = Tag::Float;
-        (*tags)["string"]     = Tag::String;
-        (*tags)["point"]      = Tag::Point;
-        (*tags)["vector"]     = Tag::Vector;
-        (*tags)["transform"]  = Tag::Transform;
-        (*tags)["translate"]  = Tag::Translate;
-        (*tags)["matrix"]     = Tag::Matrix;
-        (*tags)["rotate"]     = Tag::Rotate;
-        (*tags)["scale"]      = Tag::Scale;
-        (*tags)["lookat"]     = Tag::LookAt;
-        (*tags)["ref"]        = Tag::NamedReference;
-        (*tags)["spectrum"]   = Tag::Spectrum;
-        (*tags)["rgb"]        = Tag::RGB;
-        (*tags)["include"]    = Tag::Include;
-        (*tags)["alias"]      = Tag::Alias;
-        (*tags)["default"]    = Tag::Default;
+        (*tags)["boolean"]       = Tag::Boolean;
+        (*tags)["integer"]       = Tag::Integer;
+        (*tags)["float"]         = Tag::Float;
+        (*tags)["string"]        = Tag::String;
+        (*tags)["point"]         = Tag::Point;
+        (*tags)["vector"]        = Tag::Vector;
+        (*tags)["transform"]     = Tag::Transform;
+        (*tags)["translate"]     = Tag::Translate;
+        (*tags)["matrix"]        = Tag::Matrix;
+        (*tags)["rotate"]        = Tag::Rotate;
+        (*tags)["scale"]         = Tag::Scale;
+        (*tags)["lookat"]        = Tag::LookAt;
+        (*tags)["ref"]           = Tag::NamedReference;
+        (*tags)["spectrum"]      = Tag::Spectrum;
+        (*tags)["rgb"]           = Tag::RGB;
+        (*tags)["include"]       = Tag::Include;
+        (*tags)["alias"]         = Tag::Alias;
+        (*tags)["default"]       = Tag::Default;
+        (*tags)["resourcepath"] = Tag::Resource;
     }
 
     // Register the new class as an object tag
@@ -625,6 +626,17 @@ static std::pair<std::string, std::string> parse_xml(XMLSource &src, XMLParseCon
                     }
                     if (!found)
                         param.emplace_back(name, value);
+                    return std::make_pair("", "");
+                }
+                break;
+
+            case Tag::Resource: {
+                    check_attributes(src, node, { "value" });
+                    ref<FileResolver> fs = Thread::thread()->file_resolver();
+                    fs::path foldername = fs->resolve(node.attribute("value").value());
+                    if (!fs::exists(foldername))
+                        src.throw_error(node, "resource folder \"%s\" not found", foldername);
+                    fs->append(foldername);
                     return std::make_pair("", "");
                 }
                 break;
