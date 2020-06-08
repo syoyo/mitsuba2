@@ -137,8 +137,14 @@ MTS_PY_EXPORT(SurfaceInteraction) {
             D(SurfaceInteraction, compute_partials))
         .def("has_uv_partials", &SurfaceInteraction3f::has_uv_partials,
             D(SurfaceInteraction, has_uv_partials))
-        // .def("normal_derivative", &SurfaceInteraction3f::normal_derivative, D(SurfaceInteraction, normal_derivative)) // TODO
         .def_repr(SurfaceInteraction3f);
+
+    // TODO
+    if constexpr (is_scalar_v<Float>) {
+        inter.def("normal_derivative", &SurfaceInteraction3f::normal_derivative,
+                  "shading_frame"_a = true, "active"_a = true,
+                  D(SurfaceInteraction, normal_derivative));
+    }
 
     // Manually bind the slicing operators to handle ShapePtr properly
     bind_slicing_operator_surfaceinteraction<SurfaceInteraction3f>(inter);
