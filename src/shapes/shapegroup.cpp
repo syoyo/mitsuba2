@@ -6,6 +6,8 @@
 
 #if defined(MTS_ENABLE_EMBREE)
     #include <embree3/rtcore.h>
+#elif defined(MTS_ENABLE_OPTIX)
+    #include <mitsuba/render/optix/shapes.h>
 #endif
 
 NAMESPACE_BEGIN(mitsuba)
@@ -93,10 +95,11 @@ public:
                 if (shape->is_sensor())
                     Throw("Instancing of sensors is not supported");
                 else {
-#if defined(MTS_ENABLE_EMBREE)
+#if defined(MTS_ENABLE_EMBREE) || defined(MTS_ENABLE_OPTIX)
                     m_shapes.push_back(shape);
                     m_bbox.expand(shape->bbox());
-#else
+#endif
+#if !defined(MTS_ENABLE_EMBREE)
                     m_kdtree->add_shape(shape);
 #endif
                 }
@@ -211,6 +214,20 @@ public:
         return oss.str();
     }
 
+#if defined(MTS_ENABLE_OPTIX)
+    virtual void optix_accel_handle(const OptixDeviceContext& context, OptixTraversableHandle &out_handle, uint32_t &out_sbt_offset) override {
+        if (m_accel.handle == 0ull)
+            build_gas(m_shapes, context, m_sbt_offset, m_accel);
+        out_handle = m_accel.handle;
+        out_sbt_offset = m_sbt_offset;
+    }
+
+    virtual void optix_fill_hitgroup_records(std::vector<HitGroupSbtRecord> &hitgroup_records, OptixProgramGroup *program_groups) override {
+        m_sbt_offset = (uint32_t) hitgroup_records.size();
+        fill_hitgroup_records(hitgroup_records, m_shapes, program_groups);
+    }
+#endif
+
     MTS_DECLARE_CLASS()
 private:
     ScalarBoundingBox3f m_bbox;
@@ -220,6 +237,12 @@ private:
         std::vector<ref<Base>> m_shapes;
     #else
         ref<ShapeKDTree> m_kdtree;
+    #endif
+    #if defined(MTS_ENABLE_OPTIX)
+        std::vector<ref<Base>> m_shapes;
+        OptixAccelData m_accel;
+        /// OptiX hitgroup sbt offset
+        uint32_t m_sbt_offset;
     #endif
 };
 

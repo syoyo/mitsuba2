@@ -2,6 +2,8 @@
 
 #ifdef __CUDACC__
 # include <optix.h>
+#else
+# include <mitsuba/render/optix_api.h>
 #endif
 
 #include <mitsuba/render/optix/bbox.cuh>
@@ -11,6 +13,20 @@ struct OptixHitGroupData {
     unsigned long long shape_ptr;
     void* data;
 };
+
+template <typename T>
+struct alignas(OPTIX_SBT_RECORD_ALIGNMENT) SbtRecord {
+    char header[OPTIX_SBT_RECORD_HEADER_SIZE];
+    T data;
+};
+
+struct alignas(OPTIX_SBT_RECORD_ALIGNMENT) EmptySbtRecord {
+    char header[OPTIX_SBT_RECORD_HEADER_SIZE];
+};
+
+using RayGenSbtRecord   = EmptySbtRecord;
+using MissSbtRecord     = EmptySbtRecord;
+using HitGroupSbtRecord = SbtRecord<OptixHitGroupData>;
 
 /// Launch-varying parameters
 struct OptixParams {
@@ -44,13 +60,27 @@ __device__ void write_output_params(OptixParams &params,
                                     unsigned int launch_index,
                                     unsigned long long shape_ptr,
                                     unsigned int prim_id,
-                                    const Vector3f &p,
-                                    const Vector2f &uv,
-                                    const Vector3f &ns,
-                                    const Vector3f &ng,
-                                    const Vector3f &dp_du,
-                                    const Vector3f &dp_dv,
+                                    Vector3f p,
+                                    Vector2f uv,
+                                    Vector3f ns,
+                                    Vector3f ng,
+                                    Vector3f dp_du,
+                                    Vector3f dp_dv,
                                     float t) {
+
+    // Transform inputs if the object is inside an instance
+    if (optixGetInstanceId() != ~0u) {
+        float m[12], inv[12];
+        optixGetObjectToWorldTransformMatrix(m);
+        optixGetWorldToObjectTransformMatrix(inv);
+        Transform4f to_world(m, inv);
+
+        p = to_world.transform_point(p);
+        ns = normalize(to_world.transform_normal(ns));
+        ng = normalize(to_world.transform_normal(ng));
+        dp_du = to_world.transform_vector(dp_du);
+        dp_dv = to_world.transform_vector(dp_dv);
+    }
 
     params.out_shape_ptr[launch_index] = shape_ptr;
     params.out_primitive_id[launch_index] = prim_id;

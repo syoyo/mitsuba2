@@ -14,17 +14,15 @@ struct OptixSphereData {
 };
 
 #ifdef __CUDACC__
+
 extern "C" __global__ void __intersection__sphere() {
     const OptixHitGroupData *sbt_data = (OptixHitGroupData*) optixGetSbtDataPointer();
     OptixSphereData *sphere = (OptixSphereData *)sbt_data->data;
 
-    float mint = optixGetRayTmin();
-    float maxt = optixGetRayTmax();
-    Vector3f ray_o = make_vector3f(optixGetWorldRayOrigin());
-    Vector3f ray_d = make_vector3f(optixGetWorldRayDirection());
+    Ray3f ray = get_object_ray();
 
-    Vector3f o = ray_o - sphere->center;
-    Vector3f d = ray_d;
+    Vector3f o = ray.o - sphere->center;
+    Vector3f d = ray.d;
 
     float A = squared_norm(d);
     float B = 2.f * dot(o, d);
@@ -34,12 +32,12 @@ extern "C" __global__ void __intersection__sphere() {
     bool solution_found = solve_quadratic(A, B, C, near_t, far_t);
 
     // Sphere doesn't intersect with the segment on the ray
-    bool out_bounds = !(near_t <= maxt && far_t >= mint); // NaN-aware conditionals
+    bool out_bounds = !(near_t <= ray.maxt && far_t >= ray.mint); // NaN-aware conditionals
 
     // Sphere fully contains the segment of the ray
-    bool in_bounds = near_t < mint && far_t > maxt;
+    bool in_bounds = near_t < ray.mint && far_t > ray.maxt;
 
-    float t = (near_t < mint ? far_t: near_t);
+    float t = (near_t < ray.mint ? far_t: near_t);
 
     if (solution_found && !out_bounds && !in_bounds)
         optixReportIntersection(t, OPTIX_HIT_KIND_TRIANGLE_FRONT_FACE);
@@ -58,11 +56,9 @@ extern "C" __global__ void __closesthit__sphere() {
         /* Compute and store information describing the intersection. This is
            very similar to Sphere::fill_surface_interaction() */
 
-        Vector3f ray_o = make_vector3f(optixGetWorldRayOrigin());
-        Vector3f ray_d = make_vector3f(optixGetWorldRayDirection());
-        float t = optixGetRayTmax();
+        Ray3f ray = get_object_ray();
 
-        Vector3f ns = normalize(fmaf(t, ray_d, ray_o) - sphere->center);
+        Vector3f ns = normalize(ray(ray.maxt) - sphere->center);
 
         // Re-project onto the sphere to improve accuracy
         Vector3f p = fmaf(sphere->radius, ns, sphere->center);
@@ -97,13 +93,13 @@ extern "C" __global__ void __closesthit__sphere() {
 
         if (sphere->flip_normals)
             ns = -ns;
-
+            
         Vector3f ng = ns;
 
         write_output_params(params, launch_index,
                             sbt_data->shape_ptr,
                             optixGetPrimitiveIndex(),
-                            p, uv, ns, ng, dp_du, dp_dv, t);
+                            p, uv, ns, ng, dp_du, dp_dv, ray.maxt);
     }
 }
 #endif

@@ -10,10 +10,6 @@
     #include <embree3/rtcore.h>
 #endif
 
-#if defined(MTS_ENABLE_OPTIX)
-    #include <mitsuba/render/optix_api.h>
-#endif
-
 NAMESPACE_BEGIN(mitsuba)
 
 #if defined(MTS_ENABLE_EMBREE)
@@ -256,6 +252,22 @@ static const uint32_t optix_geometry_flags[1] = { OPTIX_GEOMETRY_FLAG_NONE };
 
 MTS_VARIANT void Shape<Float, Spectrum>::optix_prepare_geometry() {
     NotImplementedError("optix_prepare_geometry");
+}
+MTS_VARIANT void Shape<Float, Spectrum>::optix_prepare_instance(const OptixDeviceContext&, OptixInstance&, uint32_t) {
+    NotImplementedError("optix_prepare_instance");
+}
+MTS_VARIANT void Shape<Float, Spectrum>::optix_accel_handle(const OptixDeviceContext&, OptixTraversableHandle&, uint32_t&) {
+    NotImplementedError("optix_accel_handle");
+}
+MTS_VARIANT void Shape<Float, Spectrum>::optix_fill_hitgroup_records(std::vector<HitGroupSbtRecord> &hitgroup_records, OptixProgramGroup *program_groups) {
+    optix_prepare_geometry();
+    // Set hitgroup record data
+    hitgroup_records.push_back(HitGroupSbtRecord());
+    hitgroup_records.back().data = { (uintptr_t) this, m_optix_data_ptr };
+
+    size_t program_group_idx = (is_mesh() ? 2 : 3 + get_shape_descr_idx(this));
+    // Setup the hitgroup record and copy it to the hitgroup records array
+    rt_check(optixSbtRecordPackHeader(program_groups[program_group_idx], &hitgroup_records.back()));
 }
 
 MTS_VARIANT void Shape<Float, Spectrum>::optix_build_input(OptixBuildInput &build_input) const {

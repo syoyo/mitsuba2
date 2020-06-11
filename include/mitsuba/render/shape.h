@@ -7,7 +7,8 @@
 #include <enoki/stl.h>
 
 #if defined(MTS_ENABLE_OPTIX)
-#include <mitsuba/render/optix/common.h>
+# include <mitsuba/render/optix/common.h>
+# include <mitsuba/render/optix/shapes.h>
 #endif
 
 NAMESPACE_BEGIN(mitsuba)
@@ -331,6 +332,9 @@ public:
     /// Is this shape a shapegroup?
     bool is_shapegroup() const { return m_shapegroup; };
 
+    /// Is this shape an instance?
+    bool is_instance() const { return m_instance; };
+
     /// Does the surface of this shape mark a medium transition?
     bool is_medium_transition() const { return m_interior_medium.get() != nullptr ||
                                                m_exterior_medium.get() != nullptr; }
@@ -394,8 +398,12 @@ public:
     virtual void optix_prepare_geometry();
     /// Fill the OptixBuildInput struct
     virtual void optix_build_input(OptixBuildInput&) const;
-    /// Return a pointer (GPU memory) to the shape's OptiX hitgroup data buffer
-    virtual void* optix_hitgroup_data() { return m_optix_data_ptr; };
+    /// Prepare OptiX instance (only for instance)
+    virtual void optix_prepare_instance(const OptixDeviceContext&, OptixInstance&, uint32_t);
+    /// Prepare OptiX acceleration structure handle
+    virtual void optix_accel_handle(const OptixDeviceContext&, OptixTraversableHandle&, uint32_t&);
+    /// Fill the OptiX hitgroup recrods associated with this shape (may be recursive in the case of shape groups)
+    virtual void optix_fill_hitgroup_records(std::vector<HitGroupSbtRecord> &hitgroup_records, OptixProgramGroup *program_groups);
 #endif
 
     void traverse(TraversalCallback *callback) override;
@@ -419,6 +427,7 @@ protected:
 protected:
     bool m_mesh = false;
     bool m_shapegroup = false;
+    bool m_instance = false;
     ref<BSDF> m_bsdf;
     ref<Emitter> m_emitter;
     ref<Sensor> m_sensor;
