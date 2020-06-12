@@ -5,6 +5,7 @@
 #include <mitsuba/core/logger.h>
 #include <mitsuba/core/object.h>
 #include <mitsuba/core/vector.h>
+#include <mitsuba/core/random.h>
 
 NAMESPACE_BEGIN(mitsuba)
 
@@ -34,6 +35,9 @@ public:
      */
     virtual void seed(UInt64 seed_value);
 
+    /// Move to the next sample
+    virtual void next_sample() { /*no op*/ }
+
     /// Retrieve the next component value from the current sample
     virtual Float next_1d(Mask active = true);
 
@@ -56,5 +60,25 @@ protected:
     ScalarUInt64 m_base_seed;
 };
 
+
+template <typename Float, typename Spectrum>
+class MTS_EXPORT_RENDER RandomSampler : public Sampler<Float, Spectrum> {
+public:
+    MTS_IMPORT_BASE(Sampler, m_sample_count, m_base_seed)
+    MTS_IMPORT_TYPES()
+    using PCG32 = mitsuba::PCG32<UInt32>;
+
+    virtual void seed(UInt64 seed_value) override;
+    virtual size_t wavefront_size() const override;
+
+    MTS_DECLARE_CLASS()
+protected:
+    RandomSampler(const Properties &props);
+
+protected:
+    std::unique_ptr<PCG32> m_rng;
+};
+
 MTS_EXTERN_CLASS_RENDER(Sampler)
+MTS_EXTERN_CLASS_RENDER(RandomSampler)
 NAMESPACE_END(mitsuba)

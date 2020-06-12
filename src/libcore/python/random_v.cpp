@@ -13,4 +13,11 @@ MTS_PY_EXPORT(sample_tea) {
 
     m.attr("sample_tea_float") = m.attr(
         sizeof(Float) != sizeof(Float64) ? "sample_tea_float32" : "sample_tea_float64");
+
+    m.def("latin_hypercube_1", vectorize(latin_hypercube<Float, mitsuba::PCG32<Float>>),
+          "rng"_a, "sample_count"_a, "jitter"_a = true);
+    m.def("latin_hypercube_2", vectorize(latin_hypercube<Point2f, mitsuba::PCG32<Float>>),
+          "rng"_a, "sample_count"_a, "jitter"_a = true);
+    m.def("latin_hypercube_3", vectorize(latin_hypercube<Point3f, mitsuba::PCG32<Float>>),
+          "rng"_a, "sample_count"_a, "jitter"_a = true);
 }

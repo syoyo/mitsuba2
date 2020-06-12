@@ -1,5 +1,4 @@
 #include <mitsuba/core/properties.h>
-#include <mitsuba/core/random.h>
 #include <mitsuba/core/spectrum.h>
 #include <mitsuba/render/sampler.h>
 

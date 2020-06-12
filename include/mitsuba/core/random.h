@@ -31,6 +31,7 @@
 #include <mitsuba/core/simd.h>
 #include <mitsuba/core/logger.h>
 #include <mitsuba/core/traits.h>
+#include <mitsuba/core/fwd.h>
 #include <enoki/random.h>
 
 NAMESPACE_BEGIN(enoki)
@@ -169,6 +170,67 @@ auto sample_tea_float(UInt v0, UInt v1, int rounds = 4) {
         return sample_tea_float32(v0, v1, rounds);
     else
         return sample_tea_float64(v0, v1, rounds);
+}
+
+template <typename Float, typename PCG32>
+MTS_INLINE Float next_float(PCG32 *rng, mask_t<Float> active = true) {
+    if constexpr (is_double_v<scalar_t<Float>>)
+        return rng->next_float64(active);
+    else
+        return rng->next_float32(active);
+}
+
+/// Generate latin hypercube samples
+template <typename Point, typename PCG32>
+auto latin_hypercube(PCG32 *rng, size_t sample_count, bool jitter=true) {
+    using Float = std::conditional_t<is_static_array_v<Point>, value_t<Point>, Point>;
+    using UInt32 = replace_scalar_t<Float, uint32_t>;
+    using ScalarFloat = scalar_t<Float>;
+    using FloatStorage = DynamicBuffer<Float>;
+
+    constexpr size_t DIM = is_static_array_v<Point> ? array_size_v<Point> : 1;
+    size_t wavefront_size = enoki::slices(rng->state);
+
+    FloatStorage dest = empty<FloatStorage>(wavefront_size * sample_count * DIM);
+    UInt32 lane_offsets = arange<UInt32>(wavefront_size) * sample_count;
+    UInt32 lane_offsets_dest = lane_offsets * DIM;
+
+    ScalarFloat delta = rcp(ScalarFloat(sample_count));
+    if (jitter) {
+        for (size_t i = 0; i < sample_count; ++i)
+            for (size_t j = 0; j < DIM; ++j)
+                scatter(dest, (i + rng->next_float32()) * delta, lane_offsets_dest + DIM * i + j);
+    } else {
+        for (size_t i = 0; i < sample_count; ++i)
+            for (size_t j = 0; j < DIM; ++j)
+                scatter(dest, (i + Float(0.5f)) * delta, lane_offsets_dest + DIM * i + j);
+    }
+
+    if constexpr (is_cuda_array_v<Float>)
+        cuda_eval();
+
+    // Swap the sample values (independently for every dimensions)
+    for (size_t i = 0; i < sample_count; ++i) {
+        for (size_t j = 0; j < DIM; ++j) {
+            UInt32 current = lane_offsets_dest + DIM * i + j;
+            UInt32 other = lane_offsets_dest + DIM * rng->next_uint32_bounded(sample_count) + j;
+
+            Float tmp_current = gather<Float>(dest, current);
+            Float tmp_other   = gather<Float>(dest, other);
+
+            scatter(dest, tmp_current, other);
+            scatter(dest, tmp_other, current);
+
+            if constexpr (is_cuda_array_v<Float>)
+                cuda_eval();
+        }
+    }
+
+    std::vector<Point> result(sample_count);
+    for (size_t i = 0; i < sample_count; ++i)
+        result[i] = gather<Point>(dest, lane_offsets + i);
+
+    return result;
 }
 
 NAMESPACE_END(mitsuba)
