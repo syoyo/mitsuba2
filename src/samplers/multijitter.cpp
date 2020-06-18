@@ -7,9 +7,9 @@ NAMESPACE_BEGIN(mitsuba)
 
 /**!
 
-.. _sampler-stratified:
+.. _sampler-multijitter:
 
-Stratified sampler (:monosp:`stratified`)
+Multijitter sampler (:monosp:`multijitter`)
 -------------------------------------------
 
 .. pluginparameters::
@@ -17,31 +17,26 @@ Stratified sampler (:monosp:`stratified`)
  * - sample_count
    - |int|
    - Number of samples per pixel (Default: 4)
- * - dimension
-   - |int|
-   - Effective dimension, up to which stratified samples are provided. (Default: 4)
  * - seed
    - |int|
    - Seed offset (Default: 0)
  * - jitter
    - |bool|
-   - Adds additional random jitter withing the stratum (Default: True)
+   - Adds additional random jitter withing the substratum (Default: True)
 
-The stratified sample generator divides the domain into a discrete number of strata and produces
-a sample within each one of them. This generally leads to less sample clumping when compared to
-the independent sampler, as well as better convergence. Due to internal storage costs, stratified
-samples are only provided up to a certain dimension, after which independent sampling takes over.
-
+Based on https://graphics.pixar.com/library/MultiJitteredSampling/paper.pdf
  */
 
+#define USE_KENSLER_PERMUTE
+
 template <typename Float, typename Spectrum>
-class StratifiedSampler final : public RandomSampler<Float, Spectrum> {
+class MultijitterSampler final : public RandomSampler<Float, Spectrum> {
 public:
     MTS_IMPORT_BASE(RandomSampler, m_sample_count, m_base_seed, m_rng,
-                    check_rng, m_samples_per_wavefront, m_wavefront_count, wavefront_size)
+                    check_rng, m_samples_per_wavefront, m_wavefront_count)
     MTS_IMPORT_TYPES()
 
-    StratifiedSampler(const Properties &props = Properties()) : Base(props) {
+    MultijitterSampler(const Properties &props = Properties()) : Base(props) {
         m_jitter = props.bool_("jitter", true);
 
         // Make sure sample_count is power of two and square (e.g. 4, 16, 64, 256, 1024, ...)
@@ -65,7 +60,7 @@ public:
     }
 
     ref<Sampler<Float, Spectrum>> clone() override {
-        StratifiedSampler *sampler = new StratifiedSampler();
+        MultijitterSampler *sampler = new MultijitterSampler();
         sampler->m_jitter                = m_jitter;
         sampler->m_sample_count          = m_sample_count;
         sampler->m_inv_sample_count      = m_inv_sample_count;
@@ -110,10 +105,13 @@ public:
         Assert(m_wavefront_index > -1);
         check_rng(active);
 
-        UInt32 sample_indices = m_wavefront_index + m_wavefront_sample_offsets;
-        Float p = sample_permutation(sample_indices,
-                                     m_sample_count,
-                                     m_permutations_seed + m_dimension_index++);
+        UInt32 x = m_wavefront_index + m_wavefront_sample_offsets;
+
+#ifdef USE_KENSLER_PERMUTE
+        Float p = kensler_permute(x, m_sample_count, (m_permutations_seed + m_dimension_index++) * 0x45fbe943, active);
+#else
+        Float p = sample_permutation(x, m_sample_count, (m_permutations_seed + m_dimension_index++) * 0x45fbe943);
+#endif
 
         if (m_jitter)
             p += next_float<Float>(m_rng.get(), active);
@@ -128,27 +126,41 @@ public:
         check_rng(active);
 
         UInt32 sample_indices = m_wavefront_index + m_wavefront_sample_offsets;
-        UInt32 p = sample_permutation(sample_indices,
-                                      m_sample_count,
-                                      m_permutations_seed + m_dimension_index++);
 
-        Float x = p % m_resolution,
-              y = p / m_resolution;
+#ifdef USE_KENSLER_PERMUTE
+        UInt32 s = kensler_permute(sample_indices, m_sample_count, (m_permutations_seed + m_dimension_index) * 0x51633e2d, active);
+#else
+        UInt32 s = sample_permutation(sample_indices, m_sample_count, (m_permutations_seed + m_dimension_index) * 0x51633e2d);
+#endif
 
+        UInt32 x = s % m_resolution,
+               y = s / m_resolution;
+
+#ifdef USE_KENSLER_PERMUTE
+        Float sx = kensler_permute(x, m_resolution, (m_permutations_seed + m_dimension_index) * 0xa511e9b3, active);
+        Float sy = kensler_permute(y, m_resolution, (m_permutations_seed + m_dimension_index) * 0x63d83595, active);
+#else
+        Float sx = sample_permutation(x, m_resolution, (m_permutations_seed + m_dimension_index) * 0xa511e9b3);
+        Float sy = sample_permutation(y, m_resolution, (m_permutations_seed + m_dimension_index) * 0x63d83595);
+#endif
+        m_dimension_index++;
+
+        Float jx, jy;
         if (m_jitter) {
-            x += next_float<Float>(m_rng.get(), active);
-            y += next_float<Float>(m_rng.get(), active);
+            jx = next_float<Float>(m_rng.get(), active);
+            jy = next_float<Float>(m_rng.get(), active);
         } else {
-            x += 0.5f;
-            y += 0.5f;
+            jx = 0.5f;
+            jy = 0.5f;
         }
 
-        return Point2f(x, y) * m_inv_resolution;
+        return Point2f((x + (sy + jx) * m_inv_resolution) * m_inv_resolution,
+                       (y + (sx + jy) * m_inv_resolution) * m_inv_resolution);
     }
 
     std::string to_string() const override {
         std::ostringstream oss;
-        oss << "StratifiedSampler[" << std::endl
+        oss << "MultijitterSampler[" << std::endl
             << "  sample_count = " << m_sample_count << std::endl
             << "  jitter = " << m_jitter << std::endl
             << "]";
@@ -172,6 +184,6 @@ private:
     UInt32 m_wavefront_sample_offsets;
 };
 
-MTS_IMPLEMENT_CLASS_VARIANT(StratifiedSampler, Sampler)
-MTS_EXPORT_PLUGIN(StratifiedSampler, "Stratified Sampler");
+MTS_IMPLEMENT_CLASS_VARIANT(MultijitterSampler, Sampler)
+MTS_EXPORT_PLUGIN(MultijitterSampler, "Multijitter Sampler");
 NAMESPACE_END(mitsuba)

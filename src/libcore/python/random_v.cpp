@@ -3,6 +3,10 @@
 
 MTS_PY_EXPORT(sample_tea) {
     MTS_PY_IMPORT_TYPES()
+    m.def("sample_tea_32",
+          vectorize(sample_tea_32<UInt32>),
+          "v0"_a, "v1"_a, "rounds"_a = 4, D(sample_tea_32));
+
     m.def("sample_tea_float32",
           vectorize(sample_tea_float32<UInt32>),
           "v0"_a, "v1"_a, "rounds"_a = 4, D(sample_tea_float32));
@@ -20,4 +24,15 @@ MTS_PY_EXPORT(sample_tea) {
           "rng"_a, "sample_count"_a, "jitter"_a = true);
     m.def("latin_hypercube_3", vectorize(latin_hypercube<Point3f, mitsuba::PCG32<Float>>),
           "rng"_a, "sample_count"_a, "jitter"_a = true);
+
+    m.def("wavefront_latin_hypercube_1", vectorize(wavefront_latin_hypercube<Float, mitsuba::PCG32<Float>>),
+          "rng"_a, "wavefront_count"_a, "samples_per_wavefront"_a = 1, "jitter"_a = true);
+
+
+    m.def("kensler_permute",
+          vectorize(kensler_permute<UInt32>),
+          "i"_a, "l"_a, "p"_a, "active"_a = true);
+    m.def("sample_permutation",
+          vectorize(sample_permutation<UInt32>),
+          "value"_a, "sample_count"_a, "seed"_a, "rounds"_a = 4);
 }

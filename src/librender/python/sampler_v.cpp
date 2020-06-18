@@ -7,9 +7,10 @@ MTS_PY_EXPORT(Sampler) {
         .def_method(Sampler, clone)
         .def_method(Sampler, sample_count)
         .def_method(Sampler, wavefront_size)
+        .def("set_samples_per_wavefront", &Sampler::set_samples_per_wavefront )
         .def("seed", vectorize(&Sampler::seed),
              "seed_value"_a, D(Sampler, seed))
-        .def("next_sample", &Sampler::next_sample)
+        .def("prepare_wavefront", &Sampler::prepare_wavefront)
         .def("next_1d", vectorize(&Sampler::next_1d),
              "active"_a = true, D(Sampler, next_1d))
         .def("next_2d", vectorize(&Sampler::next_2d),

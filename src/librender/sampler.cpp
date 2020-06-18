@@ -18,12 +18,7 @@ MTS_VARIANT typename Sampler<Float, Spectrum>::Point2f Sampler<Float, Spectrum>:
     NotImplementedError("next_2d");
 }
 
-MTS_VARIANT RandomSampler<Float, Spectrum>::RandomSampler(const Properties &props) : Base(props) {
-    /* Can't seed yet on the GPU because we don't know yet
-        how many entries will be needed. */
-    if (!is_dynamic_array_v<Float>)
-        seed(PCG32_DEFAULT_STATE);
-}
+MTS_VARIANT RandomSampler<Float, Spectrum>::RandomSampler(const Properties &props) : Base(props) { }
 
 MTS_VARIANT void RandomSampler<Float, Spectrum>::seed(UInt64 seed_value) {
     if (!m_rng)
@@ -40,11 +35,20 @@ MTS_VARIANT void RandomSampler<Float, Spectrum>::seed(UInt64 seed_value) {
     }
 }
 
-MTS_VARIANT size_t RandomSampler<Float, Spectrum>::wavefront_size() const {
+MTS_VARIANT uint32_t RandomSampler<Float, Spectrum>::wavefront_size() const {
     if (m_rng == nullptr)
         return 0;
     else
         return enoki::slices(m_rng->state);
+}
+
+MTS_VARIANT void RandomSampler<Float, Spectrum>::check_rng(Mask active) {
+    if constexpr (is_dynamic_array_v<Float>)  {
+        if (m_rng == nullptr)
+            Throw("Sampler::seed() must be invoked before using this sampler!");
+        if (active.size() != 1 && active.size() != m_rng->state.size())
+            Throw("Invalid mask size (%d), expected %d", active.size(), m_rng->state.size());
+    }
 }
 
 MTS_IMPLEMENT_CLASS_VARIANT(Sampler, Object, "sampler")

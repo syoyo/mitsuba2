@@ -1,3 +1,4 @@
+#include <mitsuba/core/profiler.h>
 #include <mitsuba/core/properties.h>
 #include <mitsuba/core/spectrum.h>
 #include <mitsuba/render/sampler.h>
@@ -58,6 +59,7 @@ public:
 
     /// Seeds the RNG with the specified size, if applicable
     void seed(UInt64 seed_value) override {
+        ScopedPhase scope_phase(ProfilerPhase::SamplerSeed);
         if (!m_rng)
             m_rng = std::make_unique<PCG32>();
 
@@ -93,7 +95,7 @@ public:
     }
 
     /// Return the size of the wavefront (or 0, if not seeded)
-    size_t wavefront_size() const override {
+    uint32_t wavefront_size() const override {
         if (m_rng == nullptr)
             return 0;
         else

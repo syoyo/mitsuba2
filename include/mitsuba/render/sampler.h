@@ -35,8 +35,8 @@ public:
      */
     virtual void seed(UInt64 seed_value);
 
-    /// Move to the next sample
-    virtual void next_sample() { /*no op*/ }
+    /// Start the next wavefront
+    virtual void prepare_wavefront() { /*no op*/ }
 
     /// Retrieve the next component value from the current sample
     virtual Float next_1d(Mask active = true);
@@ -45,10 +45,16 @@ public:
     virtual Point2f next_2d(Mask active = true);
 
     /// Return the number of samples per pixel
-    size_t sample_count() const { return m_sample_count; }
+    uint32_t sample_count() const { return m_sample_count; }
 
     /// Return the size of the wavefront (or 0, if not seeded)
-    virtual size_t wavefront_size() const = 0;
+    virtual uint32_t wavefront_size() const = 0;
+
+    /// Set the number of samples per pass in the wavefront modes (default is 1)
+    void set_samples_per_wavefront(uint32_t samples_per_wavefront) {
+        m_samples_per_wavefront = samples_per_wavefront;
+        m_wavefront_count = m_sample_count / m_samples_per_wavefront;
+    };
 
     MTS_DECLARE_CLASS()
 protected:
@@ -56,7 +62,9 @@ protected:
     virtual ~Sampler();
 
 protected:
-    size_t m_sample_count;
+    uint32_t m_sample_count;
+    uint32_t m_samples_per_wavefront;
+    uint32_t m_wavefront_count;
     ScalarUInt64 m_base_seed;
 };
 
@@ -69,7 +77,10 @@ public:
     using PCG32 = mitsuba::PCG32<UInt32>;
 
     virtual void seed(UInt64 seed_value) override;
-    virtual size_t wavefront_size() const override;
+    virtual uint32_t wavefront_size() const override;
+
+    // Check that RNG is valid and initialized with the right size
+    void check_rng(Mask active);
 
     MTS_DECLARE_CLASS()
 protected:
