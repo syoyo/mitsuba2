@@ -147,7 +147,7 @@ void register_class(const Class *class_) {
         (*tags)["include"]       = Tag::Include;
         (*tags)["alias"]         = Tag::Alias;
         (*tags)["default"]       = Tag::Default;
-        (*tags)["resourcepath"] = Tag::Resource;
+        (*tags)["path"]          = Tag::Resource;
     }
 
     // Register the new class as an object tag
@@ -632,11 +632,20 @@ static std::pair<std::string, std::string> parse_xml(XMLSource &src, XMLParseCon
 
             case Tag::Resource: {
                     check_attributes(src, node, { "value" });
+                    if (depth != 1)
+                        src.throw_error(node, "<path>: path can only be child of root");
                     ref<FileResolver> fs = Thread::thread()->file_resolver();
-                    fs::path foldername = fs->resolve(node.attribute("value").value());
-                    if (!fs::exists(foldername))
-                        src.throw_error(node, "resource folder \"%s\" not found", foldername);
-                    fs->append(foldername);
+                    fs::path resource_path(node.attribute("value").value());
+                    if (!resource_path.is_absolute()) {
+                        // First try to resolve it starting in the XML file directory
+                        resource_path = fs::path(src.id).parent_path() / resource_path;
+                        // Otherwise try to resolve it with the FileResolver
+                        if (!fs::exists(resource_path))
+                            resource_path = fs->resolve(node.attribute("value").value());
+                    }
+                    if (!fs::exists(resource_path))
+                        src.throw_error(node, "<path>: folder \"%s\" not found", resource_path);
+                    fs->prepend(resource_path);
                     return std::make_pair("", "");
                 }
                 break;
@@ -1175,13 +1184,24 @@ ref<Object> load_string(const std::string &string, const std::string &variant,
         Throw("Error while loading \"%s\" (at %s): %s", src.id,
               src.offset(result.offset), result.description());
 
-    pugi::xml_node root = doc.document_element();
-    detail::XMLParseContext ctx(variant);
-    Properties prop;
-    size_t arg_counter; // Unused
-    auto scene_id = detail::parse_xml(src, ctx, root, Tag::Invalid, prop,
-                                      param, arg_counter, 0).second;
-    return detail::instantiate_node(ctx, scene_id);
+    // Make a backup copy of the FileResolver, which will be restored after parsing
+    ref<FileResolver> fs_backup = Thread::thread()->file_resolver();
+    Thread::thread()->set_file_resolver(new FileResolver(*fs_backup));
+
+    try {
+        pugi::xml_node root = doc.document_element();
+        detail::XMLParseContext ctx(variant);
+        Properties prop;
+        size_t arg_counter; // Unused
+        auto scene_id = detail::parse_xml(src, ctx, root, Tag::Invalid, prop,
+                                          param, arg_counter, 0).second;
+        ref<Object> obj = detail::instantiate_node(ctx, scene_id);
+        Thread::thread()->set_file_resolver(fs_backup.get());
+        return obj;
+    } catch(...) {
+        Thread::thread()->set_file_resolver(fs_backup.get());
+        throw;
+    }
 }
 
 ref<Object> load_file(const fs::path &filename_, const std::string &variant,
@@ -1208,39 +1228,49 @@ ref<Object> load_file(const fs::path &filename_, const std::string &variant,
         Throw("Error while loading \"%s\" (at %s): %s", src.id,
               src.offset(result.offset), result.description());
 
-    pugi::xml_node root = doc.document_element();
+    // Make a backup copy of the FileResolver, which will be restored after parsing
+    ref<FileResolver> fs_backup = Thread::thread()->file_resolver();
+    Thread::thread()->set_file_resolver(new FileResolver(*fs_backup));
 
-    detail::XMLParseContext ctx(variant);
-    Properties prop;
-    size_t arg_counter = 0; // Unused
-    auto scene_id = detail::parse_xml(src, ctx, root, Tag::Invalid, prop,
-                                      param, arg_counter, 0).second;
+    try {
+        pugi::xml_node root = doc.document_element();
+        detail::XMLParseContext ctx(variant);
+        Properties prop;
+        size_t arg_counter = 0; // Unused
+        auto scene_id = detail::parse_xml(src, ctx, root, Tag::Invalid, prop,
+                                          param, arg_counter, 0).second;
 
-    if (src.modified && write_update) {
-        fs::path backup = filename;
-        backup.replace_extension(".bak");
-        Log(Info, "Writing updated \"%s\" .. (backup at \"%s\")", filename, backup);
-        if (!fs::rename(filename, backup))
-            Throw("Unable to rename file \"%s\" to \"%s\"!", filename, backup);
+        if (src.modified && write_update) {
+            fs::path backup = filename;
+            backup.replace_extension(".bak");
+            Log(Info, "Writing updated \"%s\" .. (backup at \"%s\")", filename, backup);
+            if (!fs::rename(filename, backup))
+                Throw("Unable to rename file \"%s\" to \"%s\"!", filename, backup);
 
-        // Update version number
-        root.prepend_attribute("version").set_value(MTS_VERSION);
-        if (root.attribute("type").value() == std::string("scene"))
-            root.remove_attribute("type");
+            // Update version number
+            root.prepend_attribute("version").set_value(MTS_VERSION);
+            if (root.attribute("type").value() == std::string("scene"))
+                root.remove_attribute("type");
 
-        // Strip anonymous IDs/names
-        for (pugi::xpath_node result2: doc.select_nodes("//*[starts-with(@id, '_unnamed_')]"))
-            result2.node().remove_attribute("id");
-        for (pugi::xpath_node result2: doc.select_nodes("//*[starts-with(@name, '_arg_')]"))
-            result2.node().remove_attribute("name");
+            // Strip anonymous IDs/names
+            for (pugi::xpath_node result2: doc.select_nodes("//*[starts-with(@id, '_unnamed_')]"))
+                result2.node().remove_attribute("id");
+            for (pugi::xpath_node result2: doc.select_nodes("//*[starts-with(@name, '_arg_')]"))
+                result2.node().remove_attribute("name");
 
-        doc.save_file(filename.native().c_str(), "    ");
+            doc.save_file(filename.native().c_str(), "    ");
 
-        // Update for detail::file_offset
-        filename = backup;
+            // Update for detail::file_offset
+            filename = backup;
+        }
+
+        ref<Object> obj = detail::instantiate_node(ctx, scene_id);
+        Thread::thread()->set_file_resolver(fs_backup.get());
+        return obj;
+    } catch(...) {
+        Thread::thread()->set_file_resolver(fs_backup.get());
+        throw;
     }
-
-    return detail::instantiate_node(ctx, scene_id);
 }
 
 NAMESPACE_END(xml)

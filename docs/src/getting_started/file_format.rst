@@ -446,11 +446,11 @@ identifiers ``my_material_1`` and ``my_material_2``.
 External resource folders
 -------------------------
 
-Using the ``resourcepath`` tag, it is possible to add a path to the list of search paths. This can
+Using the ``path`` tag, it is possible to add a path to the list of search paths. This can
 be useful for instance when some meshes and textures are stored in a different directory, (e.g. when
-shared with other scenes). The path can be absolute, or relative to any path already existing in
-the list of search paths.
+shared with other scenes). The path can be absolute, relative to the directory containing the XML
+scene file, or relative to any path already existing in the list of search paths.
 
 .. code-block:: xml
 
-    <resourcepath value="../../my_resources"/>
+    <path value="../../my_resources"/>
