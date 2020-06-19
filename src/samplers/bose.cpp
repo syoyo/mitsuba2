@@ -7,9 +7,9 @@ NAMESPACE_BEGIN(mitsuba)
 
 /**!
 
-.. _sampler-multijitter:
+.. _sampler-bose:
 
-Multijitter sampler (:monosp:`multijitter`)
+Bose Orthogonal Array sampler (:monosp:`bose`)
 -------------------------------------------
 
 .. pluginparameters::
@@ -24,32 +24,37 @@ Multijitter sampler (:monosp:`multijitter`)
    - |bool|
    - Adds additional random jitter withing the substratum (Default: True)
 
-Based on https://graphics.pixar.com/library/MultiJitteredSampling/paper.pdf
+Based on https://cs.dartmouth.edu/~wjarosz/publications/jarosz19orthogonal.pdf
  */
 
 #define USE_KENSLER_PERMUTE
 
 template <typename Float, typename Spectrum>
-class MultijitterSampler final : public RandomSampler<Float, Spectrum> {
+class BoseSampler final : public RandomSampler<Float, Spectrum> {
 public:
     MTS_IMPORT_BASE(RandomSampler, m_sample_count, m_base_seed, m_rng,
                     check_rng, m_samples_per_wavefront, m_wavefront_count)
     MTS_IMPORT_TYPES()
 
-    MultijitterSampler(const Properties &props = Properties()) : Base(props) {
+    BoseSampler(const Properties &props = Properties()) : Base(props) {
         m_jitter = props.bool_("jitter", true);
 
-        // Make sure sample_count is power of two and square (e.g. 4, 16, 64, 256, 1024, ...)
+        // Make sure m_resolution is a prime number
+        auto is_prime = [](uint32_t x) {
+            for (uint32_t i = 2; i < x / 2; ++i)
+                if (x % i == 0)
+                    return false;
+            return true;
+        };
+
         m_resolution = 2;
-        while (sqr(m_resolution) < m_sample_count)
-            m_resolution = math::round_to_power_of_two(++m_resolution);
+        while (sqr(m_resolution) < m_sample_count || !is_prime(m_resolution))
+            m_resolution++;
 
         if (m_sample_count != sqr(m_resolution))
-            Log(Warn, "Sample count should be square and power of two, rounding to %i", sqr(m_resolution));
+            Log(Warn, "Sample count should be the square of a prime number, rounding to %i", sqr(m_resolution));
 
         m_sample_count = sqr(m_resolution);
-        m_inv_sample_count = rcp(ScalarFloat(m_sample_count));
-        m_inv_resolution   = rcp(ScalarFloat(m_resolution));
 
         // Default
         m_samples_per_wavefront = 1;
@@ -60,12 +65,10 @@ public:
     }
 
     ref<Sampler<Float, Spectrum>> clone() override {
-        MultijitterSampler *sampler = new MultijitterSampler();
+        BoseSampler *sampler = new BoseSampler();
         sampler->m_jitter                = m_jitter;
         sampler->m_sample_count          = m_sample_count;
-        sampler->m_inv_sample_count      = m_inv_sample_count;
         sampler->m_resolution            = m_resolution;
-        sampler->m_inv_resolution        = m_inv_resolution;
         sampler->m_samples_per_wavefront = m_samples_per_wavefront;
         sampler->m_wavefront_count       = m_wavefront_count;
         sampler->m_base_seed             = m_base_seed;
@@ -101,66 +104,61 @@ public:
         Assert(m_wavefront_index < m_wavefront_count);
     }
 
+    Float bose_oa(UInt32 i,   // sample index
+                  uint32_t j, // dimension
+                  uint32_t s, // number of levels/stratas
+                  UInt32 p,   // pseudo-random permutation seed
+                  Mask active = true) {
+
+        // Permutes the sample index so that samples are obtained in random order
+        i = kensler_permute(i % (s * s), s * s, p, active);
+
+        UInt32 a_i0 = i / s;
+        UInt32 a_i1 = i % s;
+
+        UInt32 a_ij, a_ik;
+        if (j == 0) {
+            a_ij = a_i0;
+            a_ik = a_i1;
+        } else if (j == 1) {
+            a_ij = a_i1;
+            a_ik = a_i0;
+        } else {
+            UInt32 k = (j % 2) ? j - 1 : j + 1;
+            a_ij     = (a_i0 + (j - 1) * a_i1) % s;
+            a_ik     = (a_i0 + (k - 1) * a_i1) % s;
+        }
+
+        UInt32 stratum     = kensler_permute(a_ij, s, p * (j + 1) * 0x51633e2d, active);
+        // UInt32 sub_stratum = kensler_permute(a_ik, s, (a_ik * s + a_ij + 1) * p * (j + 1) * 0x68bc21eb, active); // J
+        // UInt32 sub_stratum = kensler_permute(a_ik, s, (a_ij + 1) * p * (j + 1) * 0x68bc21eb, active); // MJ
+        UInt32 sub_stratum = kensler_permute(a_ik, s, p * (j + 1) * 0x68bc21eb, active); // CMJ
+        Float jitter = m_jitter ? next_float<Float>(m_rng.get(), active) : 0.5f;
+        return (stratum + (sub_stratum + jitter) / s) / s;
+    }
+
     Float next_1d(Mask active = true) override {
         Assert(m_wavefront_index > -1);
         check_rng(active);
 
-        UInt32 x = m_wavefront_index + m_wavefront_sample_offsets;
-
-#ifdef USE_KENSLER_PERMUTE
-        Float p = kensler_permute(x, m_sample_count, (m_permutations_seed + m_dimension_index++) * 0x45fbe943, active);
-#else
-        Float p = sample_permutation(x, m_sample_count, (m_permutations_seed + m_dimension_index++) * 0x45fbe943);
-#endif
-
-        if (m_jitter)
-            p += next_float<Float>(m_rng.get(), active);
-        else
-            p += 0.5f;
-
-        return p * m_inv_sample_count;
+        return bose_oa(m_wavefront_index + m_wavefront_sample_offsets,
+                       m_dimension_index++,
+                       m_resolution,
+                       m_permutations_seed, active);
     }
 
     Point2f next_2d(Mask active = true) override {
         Assert(m_wavefront_index > -1);
         check_rng(active);
 
-        UInt32 sample_indices = m_wavefront_index + m_wavefront_sample_offsets;
-
-#ifdef USE_KENSLER_PERMUTE
-        UInt32 s = kensler_permute(sample_indices, m_sample_count, (m_permutations_seed + m_dimension_index) * 0x51633e2d, active);
-#else
-        UInt32 s = sample_permutation(sample_indices, m_sample_count, (m_permutations_seed + m_dimension_index) * 0x51633e2d);
-#endif
-
-        UInt32 x = s % m_resolution,
-               y = s / m_resolution;
-
-#ifdef USE_KENSLER_PERMUTE
-        Float sx = kensler_permute(x, m_resolution, (m_permutations_seed + m_dimension_index) * 0xa511e9b3, active);
-        Float sy = kensler_permute(y, m_resolution, (m_permutations_seed + m_dimension_index) * 0x63d83595, active);
-#else
-        Float sx = sample_permutation(x, m_resolution, (m_permutations_seed + m_dimension_index) * 0xa511e9b3);
-        Float sy = sample_permutation(y, m_resolution, (m_permutations_seed + m_dimension_index) * 0x63d83595);
-#endif
-        m_dimension_index++;
-
-        Float jx, jy;
-        if (m_jitter) {
-            jx = next_float<Float>(m_rng.get(), active);
-            jy = next_float<Float>(m_rng.get(), active);
-        } else {
-            jx = 0.5f;
-            jy = 0.5f;
-        }
-
-        return Point2f((x + (sy + jx) * m_inv_resolution) * m_inv_resolution,
-                       (y + (sx + jy) * m_inv_resolution) * m_inv_resolution);
+        Float f1 = next_1d(active),
+              f2 = next_1d(active);
+        return Point2f(f1, f2);
     }
 
     std::string to_string() const override {
         std::ostringstream oss;
-        oss << "MultijitterSampler[" << std::endl
+        oss << "BoseSampler[" << std::endl
             << "  sample_count = " << m_sample_count << std::endl
             << "  jitter = " << m_jitter << std::endl
             << "]";
@@ -173,8 +171,6 @@ private:
 
     /// Stratification grid resolution
     ScalarUInt32 m_resolution;
-    ScalarFloat m_inv_resolution;
-    ScalarFloat m_inv_sample_count;
 
     /// Sampler state
     ScalarUInt32 m_dimension_index;
@@ -184,6 +180,6 @@ private:
     UInt32 m_wavefront_sample_offsets;
 };
 
-MTS_IMPLEMENT_CLASS_VARIANT(MultijitterSampler, Sampler)
-MTS_EXPORT_PLUGIN(MultijitterSampler, "Multijitter Sampler");
+MTS_IMPLEMENT_CLASS_VARIANT(BoseSampler, Sampler)
+MTS_EXPORT_PLUGIN(BoseSampler, "Bose OA Sampler");
 NAMESPACE_END(mitsuba)

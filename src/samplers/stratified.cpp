@@ -95,7 +95,7 @@ public:
 
             m_wavefront_sample_offsets = indices % m_samples_per_wavefront;
         } else {
-            m_permutations_seed = m_base_seed + seed_value;
+            m_permutations_seed = sample_tea_32<UInt32>(m_base_seed, seed_value);
             m_wavefront_sample_offsets = 0;
         }
     }
