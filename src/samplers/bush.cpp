@@ -42,7 +42,7 @@ public:
 
         // Make sure m_resolution is a prime number
         auto is_prime = [](uint32_t x) {
-            for (uint32_t i = 2; i < x / 2; ++i)
+            for (uint32_t i = 2; i <= x / 2; ++i)
                 if (x % i == 0)
                     return false;
             return true;
