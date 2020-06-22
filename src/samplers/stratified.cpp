@@ -112,16 +112,13 @@ public:
         check_rng(active);
 
         UInt32 sample_indices = m_wavefront_index + m_wavefront_sample_offsets;
-        Float p = sample_permutation(sample_indices,
-                                     m_sample_count,
-                                     m_permutations_seed + m_dimension_index++);
+        UInt32 perm_seed = m_permutations_seed + m_dimension_index++;
 
-        if (m_jitter)
-            p += next_float<Float>(m_rng.get(), active);
-        else
-            p += 0.5f;
+        Float p = permute(sample_indices, m_sample_count, perm_seed);
 
-        return p * m_inv_sample_count;
+        Float j = m_jitter ? next_float<Float>(m_rng.get(), active) : 0.5f;
+
+        return (p + j) * m_inv_sample_count;
     }
 
     Point2f next_2d(Mask active = true) override {
@@ -129,22 +126,20 @@ public:
         check_rng(active);
 
         UInt32 sample_indices = m_wavefront_index + m_wavefront_sample_offsets;
-        UInt32 p = sample_permutation(sample_indices,
-                                      m_sample_count,
-                                      m_permutations_seed + m_dimension_index++);
+        UInt32 perm_seed = m_permutations_seed + m_dimension_index++;
 
-        Float x = p % UInt32(m_resolution),
-              y = p / m_resolution;
+        UInt32 p = permute(sample_indices, m_sample_count, perm_seed);
 
+        UInt32 x = p % UInt32(m_resolution),
+               y = p / m_resolution;
+
+        Float jx = 0.5f, jy = 0.5f;
         if (m_jitter) {
-            x += next_float<Float>(m_rng.get(), active);
-            y += next_float<Float>(m_rng.get(), active);
-        } else {
-            x += 0.5f;
-            y += 0.5f;
+            jx = next_float<Float>(m_rng.get(), active);
+            jy = next_float<Float>(m_rng.get(), active);
         }
 
-        return Point2f(x, y) * m_inv_resolution;
+        return Point2f(x + jx, y + jy) * m_inv_resolution;
     }
 
     std::string to_string() const override {

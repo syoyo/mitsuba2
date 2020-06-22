@@ -25,6 +25,7 @@ Bush Orthogonal Array sampler (:monosp:`bush`)
    - Adds additional random jitter withing the substratum (Default: True)
 
 Based on https://cs.dartmouth.edu/~wjarosz/publications/jarosz19orthogonal.pdf
+
  */
 
 #define USE_KENSLER_PERMUTE

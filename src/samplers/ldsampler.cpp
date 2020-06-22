@@ -13,6 +13,13 @@ NAMESPACE_BEGIN(mitsuba)
 Low discrepancy sampler (:monosp:`ldsampler`)
 -------------------------------------------
 
+This plugin implements a simple hybrid sampler that combines aspects of a Quasi-Monte Carlo
+sequence with a pseudorandom number generator based on a technique proposed by Kollig and
+Keller \cite{Kollig2002Efficient}. It is a good and fast general-purpose sample generator and
+therefore chosen as the default option in Mitsuba. Some of the QMC samplers in the following pages
+can generate even better distributed samples, but this comes at a higher cost in terms of
+performance.
+
 Based on https://github.com/mitsuba-renderer/mitsuba/blob/master/src/samplers/ldsampler.cpp
 
  */
@@ -87,9 +94,7 @@ public:
         Assert(m_wavefront_index > -1);
 
         UInt32 sample_indices = m_wavefront_index + m_wavefront_sample_offsets;
-        UInt32 i = sample_permutation(sample_indices,
-                                      m_sample_count,
-                                      m_permutations_seed + m_dimension_index);
+        UInt32 i = permute(sample_indices, m_sample_count, m_permutations_seed + m_dimension_index);
         UInt32 scramble = sample_tea_32<UInt32>(m_permutations_seed, m_dimension_index++);
 
         return radical_inverse_2(i, scramble);
@@ -100,9 +105,7 @@ public:
         Assert(m_wavefront_index > -1);
 
         UInt32 sample_indices = m_wavefront_index + m_wavefront_sample_offsets;
-        UInt32 i = sample_permutation(sample_indices,
-                                      m_sample_count,
-                                      m_permutations_seed + m_dimension_index);
+        UInt32 i = permute(sample_indices, m_sample_count, m_permutations_seed + m_dimension_index);
         UInt32 scramble_x = sample_tea_32<UInt32>(m_permutations_seed, m_dimension_index * 0x68bc21eb);
         UInt32 scramble_y = sample_tea_32<UInt32>(m_permutations_seed, m_dimension_index * 0x51633e2d);
         m_dimension_index++;

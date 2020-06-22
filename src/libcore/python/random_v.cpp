@@ -18,21 +18,11 @@ MTS_PY_EXPORT(sample_tea) {
     m.attr("sample_tea_float") = m.attr(
         sizeof(Float) != sizeof(Float64) ? "sample_tea_float32" : "sample_tea_float64");
 
-    m.def("latin_hypercube_1", vectorize(latin_hypercube<Float, mitsuba::PCG32<Float>>),
-          "rng"_a, "sample_count"_a, "jitter"_a = true);
-    m.def("latin_hypercube_2", vectorize(latin_hypercube<Point2f, mitsuba::PCG32<Float>>),
-          "rng"_a, "sample_count"_a, "jitter"_a = true);
-    m.def("latin_hypercube_3", vectorize(latin_hypercube<Point3f, mitsuba::PCG32<Float>>),
-          "rng"_a, "sample_count"_a, "jitter"_a = true);
-
-    m.def("wavefront_latin_hypercube_1", vectorize(wavefront_latin_hypercube<Float, mitsuba::PCG32<Float>>),
-          "rng"_a, "wavefront_count"_a, "samples_per_wavefront"_a = 1, "jitter"_a = true);
-
+    m.def("permute",
+          vectorize(permute<UInt32>),
+          "value"_a, "sample_count"_a, "seed"_a, "rounds"_a = 4, D(permute));
 
     m.def("kensler_permute",
           vectorize(kensler_permute<UInt32>),
-          "i"_a, "l"_a, "p"_a, "active"_a = true);
-    m.def("sample_permutation",
-          vectorize(sample_permutation<UInt32>),
-          "value"_a, "sample_count"_a, "seed"_a, "rounds"_a = 4);
+          "i"_a, "l"_a, "p"_a, "active"_a = true, D(kensler_permute));
 }

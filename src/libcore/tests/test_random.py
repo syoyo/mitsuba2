@@ -47,21 +47,21 @@ def test_tea_vectorized(variant_packet_rgb):
         assert result[i] == sample_tea_float64(1, i, 4)
 
 
-def test_sample_permutation_bijection(variant_scalar_rgb):
+def test_permute_bijection(variant_scalar_rgb):
     """ Check that the resulting permutation vectors are bijections """
-    from mitsuba.core import sample_permutation
+    from mitsuba.core import permute
 
     for p in range(7):
         sample_count = 2**(p+1)
         for seed in range(500):
-            perm = [sample_permutation(i, sample_count, seed) for i in range(sample_count)]
+            perm = [permute(i, sample_count, seed) for i in range(sample_count)]
             assert len(set(perm)) == len(perm)
 
 
-def test_sample_permutation_bijection(variant_scalar_rgb):
+def test_permute_bijection(variant_scalar_rgb):
     """ Chi2 tests to check that the permutation vectors are uniformly distributed """
     import numpy as np
-    from mitsuba.core import sample_permutation
+    from mitsuba.core import permute
 
     for p in range(7):
         sample_count = 2**(p+1)
@@ -70,7 +70,7 @@ def test_sample_permutation_bijection(variant_scalar_rgb):
         N = 1000
         for seed in range(N):
             for i in range(sample_count):
-                j = sample_permutation(i, sample_count, seed)
+                j = permute(i, sample_count, seed)
                 histogram[i, j] += 1
 
         histogram /= N

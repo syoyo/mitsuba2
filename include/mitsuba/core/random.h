@@ -172,6 +172,7 @@ auto sample_tea_float(UInt v0, UInt v1, int rounds = 4) {
         return sample_tea_float64(v0, v1, rounds);
 }
 
+/// Forward \ref next_float call to PCG32 random generator based given type size
 template <typename Float, typename PCG32>
 MTS_INLINE Float next_float(PCG32 *rng, mask_t<Float> active = true) {
     if constexpr (is_double_v<scalar_t<Float>>)
@@ -180,151 +181,64 @@ MTS_INLINE Float next_float(PCG32 *rng, mask_t<Float> active = true) {
         return rng->next_float32(active);
 }
 
-/// Generate latin hypercube samples
-template <typename Point, typename PCG32>
-auto latin_hypercube(PCG32 *rng, size_t sample_count, bool jitter=true) {
-    using Float = std::conditional_t<is_static_array_v<Point>, value_t<Point>, Point>;
-    using UInt32 = replace_scalar_t<Float, uint32_t>;
-    using ScalarFloat = scalar_t<Float>;
-    using FloatStorage = DynamicBuffer<Float>;
-
-    constexpr size_t DIM = is_static_array_v<Point> ? array_size_v<Point> : 1;
-    size_t wavefront_size = enoki::slices(rng->state);
-
-    FloatStorage dest = empty<FloatStorage>(wavefront_size * sample_count * DIM);
-    UInt32 lane_offsets = arange<UInt32>(wavefront_size) * sample_count;
-    UInt32 lane_offsets_dest = lane_offsets * DIM;
-
-    ScalarFloat delta = rcp(ScalarFloat(sample_count));
-    if (jitter) {
-        for (size_t i = 0; i < sample_count; ++i)
-            for (size_t j = 0; j < DIM; ++j)
-                scatter(dest, (i + rng->next_float32()) * delta, lane_offsets_dest + DIM * i + j);
-    } else {
-        for (size_t i = 0; i < sample_count; ++i)
-            for (size_t j = 0; j < DIM; ++j)
-                scatter(dest, (i + Float(0.5f)) * delta, lane_offsets_dest + DIM * i + j);
-    }
-
-    if constexpr (is_cuda_array_v<Float>)
-        cuda_eval();
-
-    // Swap the sample values (independently for every dimensions)
-    for (size_t i = 0; i < sample_count; ++i) {
-        for (size_t j = 0; j < DIM; ++j) {
-            UInt32 current = lane_offsets_dest + DIM * i + j;
-            UInt32 other = lane_offsets_dest + DIM * rng->next_uint32_bounded(sample_count) + j;
-
-            Float tmp_current = gather<Float>(dest, current);
-            Float tmp_other   = gather<Float>(dest, other);
-
-            scatter(dest, tmp_current, other);
-            scatter(dest, tmp_other, current);
-
-            if constexpr (is_cuda_array_v<Float>)
-                cuda_eval();
-        }
-    }
-
-    std::vector<Point> result(sample_count);
-    for (size_t i = 0; i < sample_count; ++i)
-        result[i] = gather<Point>(dest, lane_offsets + i);
-
-    return result;
-}
-
-/// Generate latin hypercube samples
-template <typename Point, typename PCG32>
-auto wavefront_latin_hypercube(PCG32 *rng, size_t wavefront_count, size_t samples_per_wavefront = 1, bool jitter=true) {
-    using Float = std::conditional_t<is_static_array_v<Point>, value_t<Point>, Point>;
-    using UInt32 = replace_scalar_t<Float, uint32_t>;
-    using ScalarFloat = scalar_t<Float>;
-    using FloatStorage  = DynamicBuffer<Float>;
-    using UInt32Storage = DynamicBuffer<UInt32>;
-
-    constexpr size_t dim = is_static_array_v<Point> ? array_size_v<Point> : 1;
-    size_t wavefront_size = enoki::slices(rng->state);
-    size_t wavefront_res = wavefront_size / samples_per_wavefront;
-    size_t total_sample_count = wavefront_count * samples_per_wavefront;
-
-    // Generate indices table
-    UInt32Storage indices = arange<UInt32Storage>(wavefront_res * total_sample_count * dim);
-    indices = (indices / UInt32Storage(dim)) % total_sample_count;
-
-    // Jitter indices to get positions (if necessary)
-    FloatStorage positions = indices;
-    if (jitter) {
-        UInt32 offsets = arange<UInt32>(wavefront_size) * wavefront_count * dim;
-        for (size_t i = 0; i < wavefront_count * dim; ++i) {
-            scatter_add(positions, rng->next_float32(), offsets);
-            offsets += 1;
-        }
-    } else {
-        positions += 0.5f;
-    }
-
-    // Scale values so they fall in [0, 1)
-    positions *= rcp(ScalarFloat(total_sample_count));
-
-    if constexpr (is_cuda_array_v<Float>)
-        cuda_eval();
-
-    // Generate random numbers for permutations
-    UInt32Storage uint32_rands = empty<FloatStorage>(wavefront_size * wavefront_count * dim);
-    UInt32 offsets = arange<UInt32>(wavefront_size) * wavefront_count * dim;
-    for (size_t i = 0; i < wavefront_count * dim; ++i) {
-        scatter(uint32_rands, rng->next_uint32_bounded(total_sample_count), offsets);
-        offsets += 1;
-    }
-
-    // Swap the sample values (independently for every dimensions)
-    UInt32 wavefront_offsets = arange<UInt32>(wavefront_res) * total_sample_count * dim;
-    for (size_t i = 0; i < total_sample_count; ++i) {
-        for (size_t j = 0; j < dim; ++j) {
-            UInt32 current = wavefront_offsets + dim * i + j;
-            UInt32 other   = wavefront_offsets + dim * gather<UInt32>(uint32_rands, current) + j;
-
-            Float tmp_current = gather<Float>(positions, current);
-            Float tmp_other   = gather<Float>(positions, other);
-
-            scatter(positions, tmp_current, other);
-            scatter(positions, tmp_other, current);
-
-            if constexpr (is_cuda_array_v<Float>)
-                cuda_eval();
-        }
-    }
-
-    // Reconstruct wavefront samples
-    UInt32 wavefront_point_offsets = arange<UInt32>(wavefront_size) * wavefront_count;
-    std::vector<Point> result(wavefront_count);
-    for (size_t i = 0; i < wavefront_count; ++i)
-        result[i] = gather<Point>(positions, wavefront_point_offsets + i);
-
-    return result;
-}
+/**
+ * \brief Generate pseudorandom permutation vector using a shuffling network and the
+ * \ref sample_tea function. This algorithm has a O(log2(sample_count)) complexity but
+ * only supports permutation vectors whose lengths are a power of 2.
+ *
+ * \param index
+ *     Input index to be mapped
+ * \param sample_count
+ *     Length of the permutation vector
+ * \param seed
+ *     Seed value used as second input to the Tiny Encryption Algorithm. Can be used to
+ *     generate different permutation vectors.
+ * \param rounds
+ *     How many rounds should be executed by the Tiny Encryption Algorithm? The default is 2.
+ * \return
+ *     The index corresponding to the input index in the pseudorandom permutation vector.
+ */
 
 template <typename UInt32>
-UInt32 sample_permutation(UInt32 value, uint32_t sample_count, UInt32 seed, int rounds = 2) {
+UInt32 permute(UInt32 index, uint32_t sample_count, UInt32 seed, int rounds = 2) {
     uint32_t  n = log2i(sample_count);
     Assert((1 << n) == sample_count, "sample_count should be a power of 2");
 
     for (uint32_t  level = 0; level < n; ++level) {
         UInt32 bit = UInt32(1 << level);
-        // Take a random integer indentical for values that might be swapped at this level
-        UInt32 rand = sample_tea_32(value | bit, seed, rounds);
-        masked(value, eq(rand & bit, bit)) = value ^ bit;
+        // Take a random integer indentical for indices that might be swapped at this level
+        UInt32 rand = sample_tea_32(index | bit, seed, rounds);
+        masked(index, eq(rand & bit, bit)) = index ^ bit;
     }
 
-    return value;
+    return index;
 }
 
-template <typename UInt32>
-UInt32 kensler_permute(UInt32 i, uint32_t l, UInt32 p, mask_t<UInt32> active = true) {
-    if (l == 1u)
-        return zero<UInt32>(slices(i));
+/**
+ * \brief Generate pseudorandom permutation vector using the algorithm described in Pixar's
+ * technical memo "Correlated Multi-Jittered Sampling":
+ *
+ *     https://graphics.pixar.com/library/MultiJitteredSampling/
+ *
+ *  Unlike \ref permute, this function supports permutation vectors of any length.
+ *
+ * \param index
+ *     Input index to be mapped
+ * \param sample_count
+ *     Length of the permutation vector
+ * \param seed
+ *     Seed value used as second input to the Tiny Encryption Algorithm. Can be used to
+ *     generate different permutation vectors.
+ * \return
+ *     The index corresponding to the input index in the pseudorandom permutation vector.
+ */
 
-    UInt32 w = l - 1;
+template <typename UInt32>
+UInt32 kensler_permute(UInt32 index, uint32_t sample_count, UInt32 seed, mask_t<UInt32> active = true) {
+    if (sample_count == 1)
+        return zero<UInt32>(slices(index));
+
+    UInt32 w = sample_count - 1;
     w |= w >> 1;
     w |= w >> 2;
     w |= w >> 4;
@@ -332,29 +246,32 @@ UInt32 kensler_permute(UInt32 i, uint32_t l, UInt32 p, mask_t<UInt32> active = t
     w |= w >> 16;
 
     mask_t<UInt32> invalid = true;
+    UInt32 tmp;
     do {
-        masked(i, invalid) ^= p;
-        masked(i, invalid) *= 0xe170893d;
-        masked(i, invalid) ^= p >> 16;
-        masked(i, invalid) ^= (i & w) >> 4;
-        masked(i, invalid) ^= p >> 8;
-        masked(i, invalid) *= 0x0929eb3f;
-        masked(i, invalid) ^= p >> 23;
-        masked(i, invalid) ^= (i & w) >> 1;
-        masked(i, invalid) *= 1 | p >> 27;
-        masked(i, invalid) *= 0x6935fa69;
-        masked(i, invalid) ^= (i & w) >> 11;
-        masked(i, invalid) *= 0x74dcb303;
-        masked(i, invalid) ^= (i & w) >> 2;
-        masked(i, invalid) *= 0x9e501cc3;
-        masked(i, invalid) ^= (i & w) >> 2;
-        masked(i, invalid) *= 0xc860a3df;
-        masked(i, invalid) &= w;
-        masked(i, invalid) ^= i >> 5;
-        invalid = (i >= l);
+        tmp = index;
+        tmp ^= seed;
+        tmp *= 0xe170893d;
+        tmp ^= seed >> 16;
+        tmp ^= (tmp & w) >> 4;
+        tmp ^= seed >> 8;
+        tmp *= 0x0929eb3f;
+        tmp ^= seed >> 23;
+        tmp ^= (tmp & w) >> 1;
+        tmp *= 1 | seed >> 27;
+        tmp *= 0x6935fa69;
+        tmp ^= (tmp & w) >> 11;
+        tmp *= 0x74dcb303;
+        tmp ^= (tmp & w) >> 2;
+        tmp *= 0x9e501cc3;
+        tmp ^= (tmp & w) >> 2;
+        tmp *= 0xc860a3df;
+        tmp &= w;
+        tmp ^= tmp >> 5;
+        masked(index, invalid) = tmp;
+        invalid = (index >= sample_count);
     } while (any(active && invalid));
 
-    return (i + p) % l;
+    return (index + seed) % sample_count;
 }
 
 NAMESPACE_END(mitsuba)
