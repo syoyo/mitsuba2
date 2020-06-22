@@ -183,4 +183,51 @@ private:
     int m_scramble;
 };
 
+
+
+/// Van der Corput radical inverse in base 2
+template <typename UInt32, typename Float = float_array_t<UInt32>>
+Float radical_inverse_2(UInt32 n, UInt32 scramble = 0) {
+    if constexpr (is_double_v<Float>) {
+        n = (n << 32) | (n >> 32);
+        n = ((n & 0x0000ffff0000ffffULL) << 16) | ((n & 0xffff0000ffff0000ULL) >> 16);
+        n = ((n & 0x00ff00ff00ff00ffULL) << 8)  | ((n & 0xff00ff00ff00ff00ULL) >> 8);
+        n = ((n & 0x0f0f0f0f0f0f0f0fULL) << 4)  | ((n & 0xf0f0f0f0f0f0f0f0ULL) >> 4);
+        n = ((n & 0x3333333333333333ULL) << 2)  | ((n & 0xccccccccccccccccULL) >> 2);
+        n = ((n & 0x5555555555555555ULL) << 1)  | ((n & 0xaaaaaaaaaaaaaaaaULL) >> 1);
+
+        // Account for the available precision and scramble
+        n = (n >> (64 - 53)) ^ (scramble & ~-(1LL << 53));
+
+        return Float(n) / Float(1ULL << 53);
+    } else {
+        n = (n << 16) | (n >> 16);
+        n = ((n & 0x00ff00ff) << 8) | ((n & 0xff00ff00) >> 8);
+        n = ((n & 0x0f0f0f0f) << 4) | ((n & 0xf0f0f0f0) >> 4);
+        n = ((n & 0x33333333) << 2) | ((n & 0xcccccccc) >> 2);
+        n = ((n & 0x55555555) << 1) | ((n & 0xaaaaaaaa) >> 1);
+
+        // Account for the available precision and scramble
+        n = (n >> (32 - 24)) ^ (scramble & ~-(1 << 24));
+
+        return Float(n) / Float(1U << 24);
+    }
+}
+
+
+/// Sobol' radical inverse in base 2
+template <typename UInt32, typename Float = float_array_t<UInt32>>
+Float sobol_2(UInt32 n, UInt32 scramble = 0) {
+    if constexpr (is_double_v<Float>) {
+        scramble &= ~-(1LL << 53);
+        for (UInt32 v = 1ULL << 52; n != 0; n >>= 1, v ^= v >> 1)
+            masked(scramble, eq(n & 1U, 1U)) ^= v;
+        return Float(scramble) / Float(1ULL << 53);
+    } else {
+        for (UInt32 v = 1U << 31; n != 0; n >>= 1, v ^= v >> 1)
+            masked(scramble, eq(n & 1U, 1U)) ^= v;
+        return Float(scramble) / Float(1ULL << 32);
+    }
+}
+
 NAMESPACE_END(mitsuba)
