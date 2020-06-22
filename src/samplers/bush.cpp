@@ -90,10 +90,11 @@ public:
             UInt32 indices = arange<UInt32>(seed_value.size());
 
             // Get the seed value of the first sample for every pixel
-            UInt32 sequence_seeds = gather<UInt32>(seed_value, m_samples_per_wavefront * (indices / m_samples_per_wavefront));
+            UInt32 sequence_idx = m_samples_per_wavefront * (indices / m_samples_per_wavefront);
+            UInt32 sequence_seeds = gather<UInt32>(seed_value, sequence_idx);
             m_permutations_seed = sample_tea_32<UInt32>(UInt32(m_base_seed), sequence_seeds);
 
-            m_wavefront_sample_offsets = indices % m_samples_per_wavefront;
+            m_wavefront_sample_offsets = indices % UInt32(m_samples_per_wavefront);
         } else {
             m_permutations_seed = sample_tea_32<UInt32>(m_base_seed, seed_value);
             m_wavefront_sample_offsets = 0;

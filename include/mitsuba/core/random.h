@@ -321,6 +321,9 @@ UInt32 sample_permutation(UInt32 value, uint32_t sample_count, UInt32 seed, int 
 
 template <typename UInt32>
 UInt32 kensler_permute(UInt32 i, uint32_t l, UInt32 p, mask_t<UInt32> active = true) {
+    if (l == 1u)
+        return zero<UInt32>(slices(i));
+
     UInt32 w = l - 1;
     w |= w >> 1;
     w |= w >> 2;
